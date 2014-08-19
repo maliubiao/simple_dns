@@ -44,7 +44,6 @@ def cat_test(packet):
         return False
 
 
-
 def handle_pollin(): 
     data, client = sock.recvfrom(4096) 
     if len(data) < 12:
@@ -56,7 +55,6 @@ def handle_pollin():
         ret = dns.parse_stream(b)
     except ValueError:
         unknown = True 
-        f.write(data)
         print "parse error, ignore" 
     finally:
         b.close() 
