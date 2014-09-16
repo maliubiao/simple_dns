@@ -1,3 +1,4 @@
+#-*-encoding=utf-8-*-
 import socket
 import os 
 import struct 
@@ -166,7 +167,6 @@ def query_ns(host):
     return "".join(msg)
 
 
-
 def handle_goto(b):
     b.seek(-1, io.SEEK_CUR) 
     d = b.read(2)
@@ -179,11 +179,17 @@ def handle_goto(b):
     b.seek(where, io.SEEK_SET)
     return prev 
 
+
 def parse_name(b): 
     stack = [] 
     nb = [] 
+    mz = 0
+    mx = 36
     while True: 
         while True: 
+            mz += 1
+            if mz > mx:
+                raise ValueError("parse name error")
             byte = b.read(1) 
             if not byte:
                 break
@@ -192,10 +198,8 @@ def parse_name(b):
                 nexto = b.tell() 
                 #loop ends
                 found = False
-                for i, v in enumerate(stack):
-                    m = min(v)
-                    n = max(v)
-                    if nexto >= m and nexto <= n:
+                for i, v in enumerate(stack): 
+                    if nexto >= min(v) and nexto <= max(v):
                         b.seek(v[0], io.SEEK_SET)
                         del stack[i:]
                         found = True
@@ -209,18 +213,20 @@ def parse_name(b):
                 if stack: 
                     prev, _ = stack.pop() 
                     b.seek(prev, io.SEEK_SET) 
-                    #the last one
-                    if not stack:
-                        break 
                 break
             d = b.read(count)
             if len(d) < count:
                 raise ValueError(NEED_MORE)
             nb.append(d) 
+        mz += 1
+        #avoid infinite goto
+        if mz > mx:
+            raise ValueError("parse name error")
         #done
         if not stack:
             break 
     return ".".join(nb)
+
 
 def parse_question(b):
     a = {}
@@ -273,6 +279,7 @@ def parse_record(b, flag):
         a["option"] = ttl
         del a["ttl"] 
     return a
+
 
 
 def parse_stream(b): 
