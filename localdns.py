@@ -14,19 +14,22 @@ import pwd
 
 g = globals() 
 
-DNS_SERVER = ("8.8.8.8", 53)
+FOREIGN_SERVER = ("8.8.8.8", 53)
+
+LOCAL_SERVER = ("114.114.114.114", 53)
 
 SERVER = ("", 53)
 
 LOG = "/tmp/localdns.log"
 PID = "/tmp/localdns.pid" 
-USER = "nobody"
+USER = "nobody" 
 
-#10s
-REQUEST_TIMEOUT = 10
+#2s
+REQUEST_TIMEOUT = 2
 
 #ident -> client
 itable = {} 
+#local, foreign -> ident
 
 has_epoll = False
 
@@ -59,6 +62,61 @@ def cat_test(packet):
     else:
         return False
 
+def get_ident2(ident):
+    if ident > 2:
+        return ident - 1, ident - 2
+    else:
+        return ident + 1, ident + 2
+
+def print_query(query, client): 
+    for k in query["question"]: 
+        if "name" in k:
+            print "query name: ", k["name"], "from: %s" % (client[0]) 
+
+
+def send_foreign(ident, payload): 
+    if not ident in itable:
+        return 
+    foreign_ctx = itable[ident] 
+    #send foreign
+    sock.sendto(struct.pack(">H", foreign_ctx["ident"]) + payload,
+            foreign_ctx["client"]) 
+    del itable[ident]
+    #drop local
+    del itable[foreign_ctx["local"]]
+
+
+def sent_local(ident, payload): 
+    if not ident in itable:
+        return 
+    local_ctx = itable[ident] 
+    #send local
+    sock.sendto(struct.pack(">H", local_ctx["ident"]) + payload,
+            local_ctx["client"])
+    del itable[ident]
+    #drop foreign 
+    del itable[local_ctx["foreign"]]
+
+
+def send2(ident, payload, client): 
+    i1, i2 = get_ident2(ident)
+    local = {
+            "foreign": i2,
+            "time": time.time(),
+            "client": client,
+            "ident": ident, 
+            }
+    foreign = {
+            "local": i1,
+            "time": time.time(),
+            "client": client,
+            "ident": ident, 
+            }
+    itable[i1] = local
+    itable[i2] = foreign 
+    sock.sendto(struct.pack(">H", i1) + payload, LOCAL_SERVER) 
+    sock.sendto(struct.pack(">H", i2) + payload, FOREIGN_SERVER)
+    
 
 def handle_pollin(): 
     data, client = sock.recvfrom(4096) 
@@ -80,21 +138,16 @@ def handle_pollin():
         ident = ret["ident"] 
         if cat_test(ret): 
             print "GFW: you shall not pass"
-            return
-    if client == DNS_SERVER: 
-        #forward to CLIENT 
-        if not ident in itable:
             return 
-        client = itable[ident][0] 
-        sock.sendto(data, client) 
-        del itable[ident]
+    payload = data[2:] 
+    if client == FOREIGN_SERVER: 
+        send_foreign(ident, payload)
+    elif client == LOCAL_SERVER:
+        sent_local(ident, payload)
     else: 
         if not unknown:
-            for k in ret["question"]: 
-                if "name" in k:
-                    print "query name: ", k["name"], "from: %s" % (client[0])
-        itable[ident]  = (client, time.time())
-        sock.sendto(data, DNS_SERVER) 
+            print_query(ret, client) 
+        send2(ident, payload, client)
 
 
 def wait_request_epoll(timeout): 
@@ -106,6 +159,7 @@ def wait_request_epoll(timeout):
                 pass
         if event & select.EPOLLERR:
             raise Exception("Failed") 
+
 
 def wait_request_select(timeout):
     r, _, e = select.select([sockfd], [], [sockfd], timeout)    
@@ -142,6 +196,7 @@ def bgrun():
     else:
         exit() 
 
+
 def run_as_user(user):
     try:
         db = pwd.getpwnam(user)
@@ -159,9 +214,8 @@ def run_as_user(user):
 def clients_gc():
     now = time.time()
     for k, v in itable.items(): 
-        if now - v[1] > 2:
+        if now - v["time"] > REQUEST_TIMEOUT:
             del itable[k] 
-
 
 def sigusr1_reload(*args):
     print "reload localdns"
