@@ -141,9 +141,9 @@ def handle_pollin():
             return 
     payload = data[2:] 
     if client == FOREIGN_SERVER: 
-        send_foreign(ident, payload)
-    elif client == LOCAL_SERVER:
-        sent_local(ident, payload)
+        send_foreign(ident, payload) 
+    elif client == LOCAL_SERVER: 
+        sent_local(ident, payload) 
     else: 
         if not unknown:
             print_query(ret, client) 
@@ -236,7 +236,7 @@ def main():
         end = time.time()
         try:
             wait_request(2)
-        except IOError:
+        except:
             pass
         if end - prev > REQUEST_TIMEOUT: 
             clients_gc()
